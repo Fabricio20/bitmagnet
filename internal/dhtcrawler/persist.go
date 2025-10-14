@@ -2,6 +2,8 @@ package dhtcrawler
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/bitmagnet-io/bitmagnet/internal/database/dao"
@@ -147,6 +149,25 @@ func (c *crawler) runPersistTorrents(ctx context.Context) {
 	}
 }
 
+// isPaddingFile checks if a file is a padding file via its path.
+func isPaddingFile(path string) bool {
+	// BEP47 standard format: .pad/
+	if strings.HasPrefix(path, ".pad/") {
+		return true
+	}
+	// BitComet format
+	if strings.HasPrefix(path, "____padding_file") {
+		return true
+	}
+	return false
+}
+
+// fileWithIndex holds a file along with its original index in the torrent
+type fileWithIndex struct {
+	file  metainfo.FileInfo
+	index int
+}
+
 func createTorrentModel(
 	hash protocol.ID,
 	info metainfo.Info,
@@ -168,19 +189,37 @@ func createTorrentModel(
 		filesCount = model.NewNullUint(uint(len(info.Files)))
 	}
 
-	files := make([]model.TorrentFile, 0, min(int(saveFilesThreshold), len(info.Files)))
-
+	// Filter out padding files and collect non-padding files with their original indices
+	var nonPaddingFiles []fileWithIndex
 	for i, file := range info.Files {
-		if i >= int(saveFilesThreshold) {
-			filesStatus = model.FilesStatusOverThreshold
-			break
+		path := file.DisplayPath(&info)
+		if !isPaddingFile(path) {
+			nonPaddingFiles = append(nonPaddingFiles, fileWithIndex{
+				file:  file,
+				index: i,
+			})
 		}
+	}
 
+	// Sort non-padding files by size (descending - larger files first)
+	sort.Slice(nonPaddingFiles, func(i, j int) bool {
+		return nonPaddingFiles[i].file.Length > nonPaddingFiles[j].file.Length
+	})
+
+	// Take up to saveFilesThreshold files from the sorted list
+	filesToStore := nonPaddingFiles
+	if len(nonPaddingFiles) > int(saveFilesThreshold) {
+		filesToStore = nonPaddingFiles[:saveFilesThreshold]
+		filesStatus = model.FilesStatusOverThreshold
+	}
+
+	files := make([]model.TorrentFile, 0, len(filesToStore))
+	for _, fileWithIdx := range filesToStore {
 		files = append(files, model.TorrentFile{
 			InfoHash: hash,
-			Index:    uint(i),
-			Path:     file.DisplayPath(&info),
-			Size:     uint(file.Length),
+			Index:    uint(fileWithIdx.index),
+			Path:     fileWithIdx.file.DisplayPath(&info),
+			Size:     uint(fileWithIdx.file.Length),
 		})
 	}
 
