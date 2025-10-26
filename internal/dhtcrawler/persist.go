@@ -2,10 +2,10 @@ package dhtcrawler
 
 import (
 	"context"
+    "regexp"
 	"sort"
 	"strings"
 	"time"
-    "regexp"
 
 	"github.com/bitmagnet-io/bitmagnet/internal/database/dao"
 	"github.com/bitmagnet-io/bitmagnet/internal/model"
