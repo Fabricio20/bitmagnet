@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+    "regexp"
 
 	"github.com/bitmagnet-io/bitmagnet/internal/database/dao"
 	"github.com/bitmagnet-io/bitmagnet/internal/model"
@@ -155,11 +156,9 @@ func isPaddingFile(path string) bool {
 	if strings.HasPrefix(path, ".pad/") {
 		return true
 	}
-	// BitComet format
-	if strings.HasPrefix(path, "____padding_file") {
-		return true
-	}
-	return false
+	// BitComet and other formats
+	re := regexp.MustCompile(`.*_+padding_*file`)
+	return re.MatchString(path)
 }
 
 // fileWithIndex holds a file along with its original index in the torrent
